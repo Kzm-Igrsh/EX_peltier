@@ -1,86 +1,104 @@
 #include <M5Unified.h>
 
-// M5Stack CoreのPortA ピン定義
-const int PWM0_PIN = 21;  // G21
-const int PWM1_PIN = 22;  // G22
-
-// PWMチャンネル設定
-const int PWM0_CH = 0;
-const int PWM1_CH = 1;
-const int PWM_FREQ = 1000;  // 1000Hz
-const int PWM_RES = 8;      // 8bit (0-255)
-
-// モード定義
-enum Mode {
-  MODE_FORWARD,
-  MODE_REVERSE,
-  MODE_STOP
+// M5Stack Core2 + ExtPort の3ポート定義
+struct PortConfig {
+  String name;
+  int pin0;
+  int pin1;
+  int ch0;
+  int ch1;
 };
 
-Mode currentMode = MODE_STOP;
+PortConfig ports[] = {
+  {"PORT A", 32, 33, 0, 1},  // Core2内蔵 Port A
+  {"PORT C", 13, 14, 2, 3},  // ExtPort Port C
+  {"PORT E", 2,  1,  4, 5}   // ExtPort Port E (画像のE1, E2)
+};
 
-// 各モードごとのパワー値を保持
-int forwardPower = 0;   // Forward時のパワー
-int reversePower = 0;   // Reverse時のパワー
+const int PORT_COUNT = 3;
+int currentPortIdx = 0;
 
-void updateDisplay() {
-  M5.Display.clear();
-  M5.Display.setTextSize(2);
-  M5.Display.setCursor(0, 0);
+const int PWM_FREQ = 1000;
+const int PWM_RES = 8;
+
+enum Mode { MODE_FORWARD, MODE_REVERSE, MODE_STOP };
+
+Mode modes[3] = {MODE_STOP, MODE_STOP, MODE_STOP};
+int forwardPower[3] = {0, 0, 0};
+int reversePower[3] = {0, 0, 0};
+
+void applyPWM(int portIdx) {
+  PortConfig &p = ports[portIdx];
   
-  // モード表示
-  switch(currentMode) {
+  switch(modes[portIdx]) {
     case MODE_FORWARD:
-      M5.Display.println("Forward");
-      M5.Display.println("");
-      M5.Display.printf("Power: %d\n", forwardPower);
-      M5.Display.println("");
-      M5.Display.printf("PWM0: %d\n", forwardPower);
-      M5.Display.printf("PWM1: 0\n");
+      ledcWrite(p.ch0, forwardPower[portIdx]);
+      ledcWrite(p.ch1, 0);
+      Serial.printf("%s Forward: PWM=%d\n", p.name.c_str(), forwardPower[portIdx]);
       break;
     case MODE_REVERSE:
-      M5.Display.println("Reverse");
-      M5.Display.println("");
-      M5.Display.printf("Power: %d\n", reversePower);
-      M5.Display.println("");
-      M5.Display.printf("PWM0: 0\n");
-      M5.Display.printf("PWM1: %d\n", reversePower);
+      ledcWrite(p.ch0, 0);
+      ledcWrite(p.ch1, reversePower[portIdx]);
+      Serial.printf("%s Reverse: PWM=%d\n", p.name.c_str(), reversePower[portIdx]);
+      break;
+    case MODE_STOP:
+      ledcWrite(p.ch0, 0);
+      ledcWrite(p.ch1, 0);
+      Serial.printf("%s Stop\n", p.name.c_str());
+      break;
+  }
+}
+
+void updateDisplay() {
+  PortConfig &p = ports[currentPortIdx];
+  M5.Display.clear();
+  
+  // ヘッダー（ポートごとに色分け）
+  uint32_t colors[] = {RED, BLUE, YELLOW};
+  M5.Display.fillRect(0, 0, 320, 30, colors[currentPortIdx]);
+  M5.Display.setTextColor(WHITE);
+  M5.Display.setTextSize(2);
+  M5.Display.setCursor(5, 5);
+  M5.Display.printf("%s (G%d,G%d)", p.name.c_str(), p.pin0, p.pin1);
+  
+  M5.Display.setTextColor(WHITE);
+  M5.Display.setCursor(10, 50);
+  
+  // モード表示
+  switch(modes[currentPortIdx]) {
+    case MODE_FORWARD:
+      M5.Display.println("Forward (Cool)");
+      M5.Display.printf("\nPower: %d\n", forwardPower[currentPortIdx]);
+      break;
+    case MODE_REVERSE:
+      M5.Display.println("Reverse (Heat)");
+      M5.Display.printf("\nPower: %d\n", reversePower[currentPortIdx]);
       break;
     case MODE_STOP:
       M5.Display.println("Stop");
-      M5.Display.println("");
-      M5.Display.println("Power: 0");
-      M5.Display.println("");
-      M5.Display.println("PWM0: 0");
-      M5.Display.println("PWM1: 0");
+      M5.Display.println("\nPower: 0");
       break;
   }
   
-  M5.Display.println("");
+  M5.Display.println("\n----------------");
   M5.Display.setTextSize(1);
-  M5.Display.println("A: -10  B: +10  C: Mode");
-  M5.Display.println("");
-  M5.Display.printf("Fwd:%d Rev:%d\n", forwardPower, reversePower);
-}
-
-void applyPWM() {
-  switch(currentMode) {
-    case MODE_FORWARD:
-      ledcWrite(PWM0_CH, forwardPower);
-      ledcWrite(PWM1_CH, 0);
-      Serial.printf("Forward: PWM0=%d\n", forwardPower);
-      break;
-    case MODE_REVERSE:
-      ledcWrite(PWM0_CH, 0);
-      ledcWrite(PWM1_CH, reversePower);
-      Serial.printf("Reverse: PWM1=%d\n", reversePower);
-      break;
-    case MODE_STOP:
-      ledcWrite(PWM0_CH, 0);
-      ledcWrite(PWM1_CH, 0);
-      Serial.println("Stop: All OFF");
-      break;
-  }
+  M5.Display.printf("Fwd:%d Rev:%d\n", 
+    forwardPower[currentPortIdx], 
+    reversePower[currentPortIdx]);
+  
+  // タッチボタン表示
+  M5.Display.fillRect(0, 200, 106, 40, DARKGREY);
+  M5.Display.fillRect(107, 200, 106, 40, DARKGREY);
+  M5.Display.fillRect(214, 200, 106, 40, DARKGREY);
+  
+  M5.Display.setTextColor(WHITE);
+  M5.Display.setTextSize(2);
+  M5.Display.setCursor(30, 212);
+  M5.Display.print("-10");
+  M5.Display.setCursor(137, 212);
+  M5.Display.print("+10");
+  M5.Display.setCursor(232, 212);
+  M5.Display.print("Mode");
 }
 
 void setup() {
@@ -88,63 +106,77 @@ void setup() {
   M5.begin(cfg);
   
   Serial.begin(115200);
-  Serial.println("Hbridge Control with Mode Memory");
+  Serial.println("\n========================================");
+  Serial.println("M5Stack Core2 + ExtPort");
+  Serial.println("Port A, C, E - 3-Port Peltier Control");
+  Serial.println("========================================");
   
-  // PWM初期化
-  ledcSetup(PWM0_CH, PWM_FREQ, PWM_RES);
-  ledcAttachPin(PWM0_PIN, PWM0_CH);
-  ledcWrite(PWM0_CH, 0);
+  // 全ポート初期化
+  for(int i = 0; i < PORT_COUNT; i++) {
+    ledcSetup(ports[i].ch0, PWM_FREQ, PWM_RES);
+    ledcAttachPin(ports[i].pin0, ports[i].ch0);
+    ledcWrite(ports[i].ch0, 0);
+    
+    ledcSetup(ports[i].ch1, PWM_FREQ, PWM_RES);
+    ledcAttachPin(ports[i].pin1, ports[i].ch1);
+    ledcWrite(ports[i].ch1, 0);
+    
+    Serial.printf("Init %s: G%d, G%d\n", 
+      ports[i].name.c_str(), ports[i].pin0, ports[i].pin1);
+  }
   
-  ledcSetup(PWM1_CH, PWM_FREQ, PWM_RES);
-  ledcAttachPin(PWM1_PIN, PWM1_CH);
-  ledcWrite(PWM1_CH, 0);
-  
+  Serial.println("========================================\n");
   updateDisplay();
 }
 
 void loop() {
   M5.update();
   
-  // Button A: パワー -10
-  if (M5.BtnA.wasPressed()) {
-    if (currentMode == MODE_FORWARD) {
-      forwardPower = max(0, forwardPower - 10);
-    } else if (currentMode == MODE_REVERSE) {
-      reversePower = max(0, reversePower - 10);
-    }
-    applyPWM();
-    updateDisplay();
-  }
+  auto t = M5.Touch.getDetail();
   
-  // Button B: パワー +10
-  if (M5.BtnB.wasPressed()) {
-    if (currentMode == MODE_FORWARD) {
-      forwardPower = min(255, forwardPower + 10);
-    } else if (currentMode == MODE_REVERSE) {
-      reversePower = min(255, reversePower + 10);
+  if (t.wasPressed()) {
+    int x = t.x;
+    int y = t.y;
+    
+    // 下部のボタンエリア
+    if (y >= 200) {
+      if (x < 106) {
+        // -10ボタン
+        if (modes[currentPortIdx] == MODE_FORWARD) {
+          forwardPower[currentPortIdx] = max(0, forwardPower[currentPortIdx] - 10);
+        } else if (modes[currentPortIdx] == MODE_REVERSE) {
+          reversePower[currentPortIdx] = max(0, reversePower[currentPortIdx] - 10);
+        }
+        applyPWM(currentPortIdx);
+        updateDisplay();
+      }
+      else if (x >= 107 && x < 213) {
+        // +10ボタン
+        if (modes[currentPortIdx] == MODE_FORWARD) {
+          forwardPower[currentPortIdx] = min(255, forwardPower[currentPortIdx] + 10);
+        } else if (modes[currentPortIdx] == MODE_REVERSE) {
+          reversePower[currentPortIdx] = min(255, reversePower[currentPortIdx] + 10);
+        }
+        applyPWM(currentPortIdx);
+        updateDisplay();
+      }
+      else {
+        // Modeボタン
+        switch(modes[currentPortIdx]) {
+          case MODE_FORWARD: modes[currentPortIdx] = MODE_REVERSE; break;
+          case MODE_REVERSE: modes[currentPortIdx] = MODE_STOP; break;
+          case MODE_STOP:    modes[currentPortIdx] = MODE_FORWARD; break;
+        }
+        applyPWM(currentPortIdx);
+        updateDisplay();
+      }
     }
-    applyPWM();
-    updateDisplay();
-  }
-  
-  // Button C: モード切り替え (Forward → Reverse → Stop → Forward...)
-  if (M5.BtnC.wasPressed()) {
-    switch(currentMode) {
-      case MODE_FORWARD:
-        currentMode = MODE_REVERSE;
-        Serial.println("Mode: Reverse");
-        break;
-      case MODE_REVERSE:
-        currentMode = MODE_STOP;
-        Serial.println("Mode: Stop");
-        break;
-      case MODE_STOP:
-        currentMode = MODE_FORWARD;
-        Serial.println("Mode: Forward");
-        break;
+    // 上部タップでポート切り替え
+    else if (y < 30) {
+      currentPortIdx = (currentPortIdx + 1) % PORT_COUNT;
+      Serial.printf("Switched to %s\n", ports[currentPortIdx].name.c_str());
+      updateDisplay();
     }
-    applyPWM();
-    updateDisplay();
   }
   
   delay(10);
