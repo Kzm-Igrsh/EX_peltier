@@ -1,6 +1,6 @@
 #include <M5Unified.h>
 
-// M5Stack Core2 + ExtPort の3ポート定義
+// M5Stack Core2 + ExtPort の4ポート定義
 struct PortConfig {
   String name;
   int pin0;
@@ -11,11 +11,12 @@ struct PortConfig {
 
 PortConfig ports[] = {
   {"PORT A", 32, 33, 0, 1},  // Core2内蔵 Port A
-  {"PORT C", 13, 14, 2, 3},  // ExtPort Port C
-  {"PORT E", 2,  1,  4, 5}   // ExtPort Port E (画像のE1, E2)
+  {"PORT B", 26, 36, 2, 3},  // Core2内蔵 Port B
+  {"PORT C", 13, 14, 4, 5},  // ExtPort Port C
+  {"PORT E", 27, 19, 6, 7}   // ExtPort Port E (E2選択)
 };
 
-const int PORT_COUNT = 3;
+const int PORT_COUNT = 4;
 int currentPortIdx = 0;
 
 const int PWM_FREQ = 1000;
@@ -23,9 +24,9 @@ const int PWM_RES = 8;
 
 enum Mode { MODE_FORWARD, MODE_REVERSE, MODE_STOP };
 
-Mode modes[3] = {MODE_STOP, MODE_STOP, MODE_STOP};
-int forwardPower[3] = {0, 0, 0};
-int reversePower[3] = {0, 0, 0};
+Mode modes[4] = {MODE_STOP, MODE_STOP, MODE_STOP, MODE_STOP};  // 3→4に修正
+int forwardPower[4] = {0, 0, 0, 0};  // 3→4に修正
+int reversePower[4] = {0, 0, 0, 0};  // 3→4に修正
 
 void applyPWM(int portIdx) {
   PortConfig &p = ports[portIdx];
@@ -54,7 +55,7 @@ void updateDisplay() {
   M5.Display.clear();
   
   // ヘッダー（ポートごとに色分け）
-  uint32_t colors[] = {RED, BLUE, YELLOW};
+  uint32_t colors[] = {RED, GREEN, BLUE, YELLOW};
   M5.Display.fillRect(0, 0, 320, 30, colors[currentPortIdx]);
   M5.Display.setTextColor(WHITE);
   M5.Display.setTextSize(2);
@@ -108,7 +109,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n========================================");
   Serial.println("M5Stack Core2 + ExtPort");
-  Serial.println("Port A, C, E - 3-Port Peltier Control");
+  Serial.println("Port A, B, C, E - 4-Port Peltier Control");
   Serial.println("========================================");
   
   // 全ポート初期化
