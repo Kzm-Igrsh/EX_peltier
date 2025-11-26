@@ -1,6 +1,6 @@
 #include <M5Unified.h>
 
-// M5Stack Core2 + ExtPort の4ポート定義
+// M5Stack Core2 + ExtPort の3ポート定義
 struct PortConfig {
   String name;
   int pin0;
@@ -11,12 +11,11 @@ struct PortConfig {
 
 PortConfig ports[] = {
   {"PORT A", 32, 33, 0, 1},  // Core2内蔵 Port A
-  {"PORT B", 26, 36, 2, 3},  // Core2内蔵 Port B
-  {"PORT C", 13, 14, 4, 5},  // ExtPort Port C
-  {"PORT E", 27, 19, 6, 7}   // ExtPort Port E (E2選択)
+  {"PORT C", 14, 13, 2, 3},  // ExtPort Port C
+  {"PORT E", 25, 2, 4, 5}    // ExtPort Port E (E1選択: DIPスイッチで「2」をON)
 };
 
-const int PORT_COUNT = 4;
+const int PORT_COUNT = 3;
 int currentPortIdx = 0;
 
 const int PWM_FREQ = 1000;
@@ -24,9 +23,9 @@ const int PWM_RES = 8;
 
 enum Mode { MODE_FORWARD, MODE_REVERSE, MODE_STOP };
 
-Mode modes[4] = {MODE_STOP, MODE_STOP, MODE_STOP, MODE_STOP};  // 3→4に修正
-int forwardPower[4] = {0, 0, 0, 0};  // 3→4に修正
-int reversePower[4] = {0, 0, 0, 0};  // 3→4に修正
+Mode modes[3] = {MODE_STOP, MODE_STOP, MODE_STOP};
+int forwardPower[3] = {0, 0, 0};
+int reversePower[3] = {0, 0, 0};
 
 void applyPWM(int portIdx) {
   PortConfig &p = ports[portIdx];
@@ -35,17 +34,17 @@ void applyPWM(int portIdx) {
     case MODE_FORWARD:
       ledcWrite(p.ch0, forwardPower[portIdx]);
       ledcWrite(p.ch1, 0);
-      Serial.printf("%s Forward: PWM=%d\n", p.name.c_str(), forwardPower[portIdx]);
+      Serial.printf("%s Forward: PWM0=%d PWM1=0\n", p.name.c_str(), forwardPower[portIdx]);
       break;
     case MODE_REVERSE:
       ledcWrite(p.ch0, 0);
       ledcWrite(p.ch1, reversePower[portIdx]);
-      Serial.printf("%s Reverse: PWM=%d\n", p.name.c_str(), reversePower[portIdx]);
+      Serial.printf("%s Reverse: PWM0=0 PWM1=%d\n", p.name.c_str(), reversePower[portIdx]);
       break;
     case MODE_STOP:
       ledcWrite(p.ch0, 0);
       ledcWrite(p.ch1, 0);
-      Serial.printf("%s Stop\n", p.name.c_str());
+      Serial.printf("%s Stop: PWM0=0 PWM1=0\n", p.name.c_str());
       break;
   }
 }
@@ -55,7 +54,7 @@ void updateDisplay() {
   M5.Display.clear();
   
   // ヘッダー（ポートごとに色分け）
-  uint32_t colors[] = {RED, GREEN, BLUE, YELLOW};
+  uint32_t colors[] = {RED, BLUE, YELLOW};
   M5.Display.fillRect(0, 0, 320, 30, colors[currentPortIdx]);
   M5.Display.setTextColor(WHITE);
   M5.Display.setTextSize(2);
@@ -109,7 +108,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n========================================");
   Serial.println("M5Stack Core2 + ExtPort");
-  Serial.println("Port A, B, C, E - 4-Port Peltier Control");
+  Serial.println("Port A, C, E - 3-Port Peltier Control");
   Serial.println("========================================");
   
   // 全ポート初期化
@@ -122,8 +121,8 @@ void setup() {
     ledcAttachPin(ports[i].pin1, ports[i].ch1);
     ledcWrite(ports[i].ch1, 0);
     
-    Serial.printf("Init %s: G%d, G%d\n", 
-      ports[i].name.c_str(), ports[i].pin0, ports[i].pin1);
+    Serial.printf("Init %s: G%d, G%d (CH%d, CH%d)\n", 
+      ports[i].name.c_str(), ports[i].pin0, ports[i].pin1, ports[i].ch0, ports[i].ch1);
   }
   
   Serial.println("========================================\n");
