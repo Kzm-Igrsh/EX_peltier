@@ -71,6 +71,40 @@ AutoTestPhase autoTestPhase = AUTO_IDLE;
 // Port A: 冷→温, Port C: 温→冷, Port E: 冷→温
 bool testStartsWithCool[3] = {true, false, true};
 
+// ★ 実験用変数
+bool experimentRunning = false;
+const int EXPERIMENT_TRIALS = 20;
+int experimentCurrentTrial = 0;
+int experimentSequence[EXPERIMENT_TRIALS];  // 各試行の刺激タイプ (0=冷, 1=温)
+int experimentPorts[EXPERIMENT_TRIALS];      // 各試行のポート
+unsigned long experimentIntervals[EXPERIMENT_TRIALS];  // 各試行後のインターバル時間（ミリ秒）
+
+enum ExperimentPhase {
+  EXP_IDLE,
+  EXP_STIMULUS,       // 刺激中
+  EXP_END_PHASE,      // END phase
+  EXP_INTERVAL        // 試行間インターバル
+};
+ExperimentPhase expPhase = EXP_IDLE;
+unsigned long expPhaseStartTime = 0;
+
+// ★ 予め決められたシーケンス定義
+const int PREDEFINED_SEQUENCE[EXPERIMENT_TRIALS][2] = {
+  // {ポート番号(0=A,1=C,2=E), 刺激タイプ(0=冷,1=温)}
+  {1, 0}, {2, 1}, {0, 0}, {0, 0}, {1, 1},  // Trial 1-5 (3-4: 同じ場所・同じ刺激)
+  {2, 0}, {2, 1}, {0, 1}, {1, 0}, {1, 1},  // Trial 6-10 (6-7: 同じ場所・違う刺激)
+  {0, 0}, {2, 1}, {1, 0}, {0, 1}, {0, 0},  // Trial 11-15 (14-15: 同じ場所・違う刺激)
+  {2, 0}, {1, 1}, {1, 0}, {2, 1}, {2, 1}   // Trial 16-20 (18-19, 19-20: 同じ場所)
+};
+
+// ★ 予め決められたインターバル時間（ミリ秒、1000~2000の範囲）
+const unsigned long PREDEFINED_INTERVALS[EXPERIMENT_TRIALS] = {
+  1200, 1800, 1500, 1100, 1900,  // Trial 1-5後
+  1400, 1700, 1300, 2000, 1600,  // Trial 6-10後
+  1200, 1500, 1800, 1100, 1400,  // Trial 11-15後
+  1900, 1300, 1700, 1600, 1000   // Trial 16-20後（最後は使われない）
+};
+
 // 関数プロトタイプ
 void setPeltier(int portIdx, int powerCool, int powerHeat);
 void startHeatStimulus(int portIdx);
@@ -78,6 +112,9 @@ void startCoolStimulus(int portIdx);
 void updateStateMachine(int portIdx);
 void startAutoTest();
 void updateAutoTest();
+void startExperiment();
+void updateExperiment();
+void generateExperimentSequence();
 void drawUI();
 void handleTouch();
 
@@ -120,6 +157,11 @@ void loop() {
     updateAutoTest();
   }
   
+  // 実験実行中
+  if (experimentRunning) {
+    updateExperiment();
+  }
+  
   // 全ポートの状態マシンを更新
   for(int i = 0; i < PORT_COUNT; i++) {
     if (portStates[i] != STATE_IDLE) {
@@ -129,6 +171,113 @@ void loop() {
   
   handleTouch();
   delay(10);
+}
+
+// ★ 実験シーケンス生成（予め決められた順番を使用）
+void generateExperimentSequence() {
+  Serial.println("\n=== Experiment Sequence (Predefined) ===");
+  for(int i = 0; i < EXPERIMENT_TRIALS; i++) {
+    experimentPorts[i] = PREDEFINED_SEQUENCE[i][0];
+    experimentSequence[i] = PREDEFINED_SEQUENCE[i][1];
+    experimentIntervals[i] = PREDEFINED_INTERVALS[i];
+    Serial.printf("Trial %d: %s, %s, Interval: %.1fs\n", i+1, 
+      ports[experimentPorts[i]].name.c_str(),
+      experimentSequence[i] == 0 ? "COOL" : "HEAT",
+      experimentIntervals[i] / 1000.0);
+  }
+  Serial.println("======================================\n");
+}
+
+// ★ 実験開始
+void startExperiment() {
+  experimentRunning = true;
+  experimentCurrentTrial = 0;
+  expPhase = EXP_STIMULUS;
+  
+  generateExperimentSequence();
+  
+  Serial.println("\n========================================");
+  Serial.println("EXPERIMENT START - 20 Trials");
+  Serial.println("========================================\n");
+  
+  // 最初の試行開始
+  int port = experimentPorts[0];
+  if (experimentSequence[0] == 0) {
+    startCoolStimulus(port);
+    Serial.printf("[EXP] Trial 1/20: %s COOL\n", ports[port].name.c_str());
+  } else {
+    startHeatStimulus(port);
+    Serial.printf("[EXP] Trial 1/20: %s HEAT\n", ports[port].name.c_str());
+  }
+  
+  drawUI();
+}
+
+// ★ 実験更新
+void updateExperiment() {
+  int currentPort = experimentPorts[experimentCurrentTrial];
+  
+  if (expPhase == EXP_STIMULUS) {
+    // 刺激が完了したらEND phaseへ
+    if (portStates[currentPort] == STATE_IDLE) {
+      expPhase = EXP_END_PHASE;
+      
+      // ENDフェーズ開始
+      if (experimentSequence[experimentCurrentTrial] == 0) {
+        // 冷刺激の後はCOOL_END
+        Serial.printf("[EXP] Trial %d: COOL_END\n", experimentCurrentTrial + 1);
+        setPeltier(currentPort, 0, COOL_END_PWM);
+        portStates[currentPort] = STATE_COOL_END;
+        stateStartTimes[currentPort] = millis();
+      } else {
+        // 温刺激の後はHEAT_END
+        Serial.printf("[EXP] Trial %d: HEAT_END\n", experimentCurrentTrial + 1);
+        setPeltier(currentPort, HEAT_END_PWM, 0);
+        portStates[currentPort] = STATE_HEAT_END;
+        stateStartTimes[currentPort] = millis();
+      }
+      drawUI();
+    }
+  } else if (expPhase == EXP_END_PHASE) {
+    // END phaseが完了したらインターバルへ
+    if (portStates[currentPort] == STATE_IDLE) {
+      experimentCurrentTrial++;
+      
+      if (experimentCurrentTrial >= EXPERIMENT_TRIALS) {
+        // 全試行完了
+        experimentRunning = false;
+        Serial.println("\n========================================");
+        Serial.println("EXPERIMENT COMPLETE");
+        Serial.println("========================================\n");
+        drawUI();
+      } else {
+        // 次の試行へ（インターバル）
+        expPhase = EXP_INTERVAL;
+        expPhaseStartTime = millis();
+        Serial.printf("[EXP] Interval before trial %d (%.1fs)...\n", 
+          experimentCurrentTrial + 1,
+          experimentIntervals[experimentCurrentTrial - 1] / 1000.0);
+      }
+    }
+  } else if (expPhase == EXP_INTERVAL) {
+    // インターバル完了後、次の刺激開始
+    unsigned long currentInterval = experimentIntervals[experimentCurrentTrial - 1];
+    if (millis() - expPhaseStartTime >= currentInterval) {
+      expPhase = EXP_STIMULUS;
+      
+      int port = experimentPorts[experimentCurrentTrial];
+      if (experimentSequence[experimentCurrentTrial] == 0) {
+        startCoolStimulus(port);
+        Serial.printf("[EXP] Trial %d/20: %s COOL\n", 
+          experimentCurrentTrial + 1, ports[port].name.c_str());
+      } else {
+        startHeatStimulus(port);
+        Serial.printf("[EXP] Trial %d/20: %s HEAT\n", 
+          experimentCurrentTrial + 1, ports[port].name.c_str());
+      }
+      drawUI();
+    }
+  }
 }
 
 // ★ 自動テスト開始
@@ -330,12 +479,12 @@ void drawUI() {
   
   // タイトル
   M5.Display.setTextColor(WHITE);
-  M5.Display.setTextSize(3);
-  M5.Display.setCursor(20, 20);
+  M5.Display.setTextSize(2);
+  M5.Display.setCursor(20, 10);
   M5.Display.println("Peltier Test");
   
   // 各ポートの状態表示
-  M5.Display.setTextSize(2);
+  M5.Display.setTextSize(1);
   
   const char* stateNames[] = {
     "IDLE", "H_START", "HEAT", "H_END",
@@ -345,13 +494,21 @@ void drawUI() {
   uint32_t colors[] = {RED, BLUE, YELLOW};
   
   for(int i = 0; i < PORT_COUNT; i++) {
-    M5.Display.setCursor(20, 70 + i * 30);
+    M5.Display.setCursor(20, 40 + i * 15);
     uint16_t color = (portStates[i] == STATE_IDLE) ? DARKGREY : colors[i];
     M5.Display.setTextColor(color);
     M5.Display.printf("%s: %s", ports[i].name.c_str(), stateNames[portStates[i]]);
   }
   
-  // TESTボタン（全ポートIDLE時のみ表示）
+  // 実験進捗表示
+  if (experimentRunning) {
+    M5.Display.setTextColor(MAGENTA);
+    M5.Display.setTextSize(2);
+    M5.Display.setCursor(20, 95);
+    M5.Display.printf("EXP: %d/20", experimentCurrentTrial + 1);
+  }
+  
+  // ボタン表示
   bool allIdle = true;
   for(int i = 0; i < PORT_COUNT; i++) {
     if (portStates[i] != STATE_IDLE) {
@@ -360,17 +517,25 @@ void drawUI() {
     }
   }
   
-  if (allIdle && !autoTestRunning) {
-    M5.Display.fillRect(60, 180, 200, 50, GREEN);
+  M5.Display.setTextSize(2);
+  
+  if (allIdle && !autoTestRunning && !experimentRunning) {
+    // TESTボタン
+    M5.Display.fillRect(20, 130, 130, 40, GREEN);
     M5.Display.setTextColor(BLACK);
-    M5.Display.setTextSize(3);
-    M5.Display.setCursor(105, 195);
+    M5.Display.setCursor(40, 143);
     M5.Display.println("TEST");
-  } else if (autoTestRunning) {
-    M5.Display.fillRect(60, 180, 200, 50, RED);
+    
+    // EXPERIMENTボタン
+    M5.Display.fillRect(170, 130, 130, 40, CYAN);
+    M5.Display.setTextColor(BLACK);
+    M5.Display.setCursor(190, 143);
+    M5.Display.println("EXP");
+  } else if (autoTestRunning || experimentRunning) {
+    // STOPボタン
+    M5.Display.fillRect(85, 130, 150, 40, RED);
     M5.Display.setTextColor(WHITE);
-    M5.Display.setTextSize(3);
-    M5.Display.setCursor(95, 195);
+    M5.Display.setCursor(115, 143);
     M5.Display.println("STOP");
   }
 }
@@ -383,30 +548,38 @@ void handleTouch() {
   int x = t.x;
   int y = t.y;
   
-  // TESTボタン領域
-  if (y >= 180 && y <= 230 && x >= 60 && x <= 260) {
-    if (autoTestRunning) {
-      // テスト停止
-      autoTestRunning = false;
-      Serial.println("\n[AUTO TEST STOPPED]\n");
-      
-      // 全ポート停止
-      for(int i = 0; i < PORT_COUNT; i++) {
-        setPeltier(i, 0, 0);
-        portStates[i] = STATE_IDLE;
+  // ボタン領域
+  if (y >= 130 && y <= 170) {
+    bool allIdle = true;
+    for(int i = 0; i < PORT_COUNT; i++) {
+      if (portStates[i] != STATE_IDLE) {
+        allIdle = false;
+        break;
       }
-      drawUI();
-    } else {
-      // 全ポートIDLEなら開始
-      bool allIdle = true;
-      for(int i = 0; i < PORT_COUNT; i++) {
-        if (portStates[i] != STATE_IDLE) {
-          allIdle = false;
-          break;
+    }
+    
+    if (autoTestRunning || experimentRunning) {
+      // STOPボタン
+      if (x >= 85 && x <= 235) {
+        autoTestRunning = false;
+        experimentRunning = false;
+        Serial.println("\n[STOPPED]\n");
+        
+        // 全ポート停止
+        for(int i = 0; i < PORT_COUNT; i++) {
+          setPeltier(i, 0, 0);
+          portStates[i] = STATE_IDLE;
         }
+        drawUI();
       }
-      if (allIdle) {
+    } else if (allIdle) {
+      // TESTボタン
+      if (x >= 20 && x <= 150) {
         startAutoTest();
+      }
+      // EXPERIMENTボタン
+      else if (x >= 170 && x <= 300) {
+        startExperiment();
       }
     }
   }
