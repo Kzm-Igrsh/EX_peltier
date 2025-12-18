@@ -71,7 +71,7 @@ void updateDisplay() {
       M5.Display.printf("\nPower: %d\n", forwardPower[currentPortIdx]);
       break;
     case MODE_REVERSE:
-      M5.Display.println("Reverse (Heat)");
+      M5.Display.println("Reverse (Heaaaat)");
       M5.Display.printf("\nPower: %d\n", reversePower[currentPortIdx]);
       break;
     case MODE_STOP:
