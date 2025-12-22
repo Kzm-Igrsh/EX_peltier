@@ -130,15 +130,15 @@ void sendSerialState(int portIdx, State state) {
   
   switch(state) {
     case STATE_HEAT:
-    case STATE_HEAT_END:
       strength = "Strong";
       break;
     case STATE_COOL:
-    case STATE_COOL_END:
       strength = "Weak";
       break;
     case STATE_HEAT_START:
     case STATE_COOL_START:
+    case STATE_HEAT_END:
+    case STATE_COOL_END:
     case STATE_IDLE:
       strength = "none";
       position = "none";
